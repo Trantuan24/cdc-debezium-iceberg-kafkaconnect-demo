@@ -1,1 +1,0 @@
-SELECT snapshot_id, element_at(summary, 'pipeline.snapshot-uuid') as snapshot_uuid, element_at(summary, 'pipeline.source-type') as source_type, element_at(summary, 'total-records') as records FROM iceberg.default."inventory_cdc$snapshots" ORDER BY committed_at DESC LIMIT 1;

@@ -1,0 +1,26 @@
+{
+  "name": "debezium-mysql-raw-source",
+  "config": {
+    "connector.class": "io.debezium.connector.mysql.MySqlConnector",
+    "tasks.max": "1",
+    "database.hostname": "mysql",
+    "database.port": "3306",
+    "database.user": "debezium",
+    "database.password": "dbz",
+    "database.server.id": "184056",
+    "topic.prefix": "raw.mysql",
+    "database.include.list": "mydb",
+    "table.include.list": "mydb.orders",
+    "snapshot.mode": "initial",
+    "decimal.handling.mode": "precise",
+    "include.schema.changes": "false",
+    "schema.history.internal.kafka.bootstrap.servers": "kafka-cdc:9092",
+    "schema.history.internal.kafka.topic": "schema-history.raw.mysql.mydb",
+    "schema.history.internal.store.only.captured.tables.ddl": "true",
+    "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "value.converter.schemas.enable": "true",
+    "key.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "value.converter.decimal.format": "NUMERIC",
+    "key.converter.schemas.enable": "true"
+  }
+}

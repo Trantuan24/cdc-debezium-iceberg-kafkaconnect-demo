@@ -31,41 +31,48 @@ Wait-Until "Oracle" {
     $status -eq "healthy"
 } 600 10
 
-# ORACLE_ENABLE_ARCHIVELOG=true configures ARCHIVELOG during first database
-# creation. Do not restart/mount the database again here.
+# ORACLE_ENABLE_ARCHIVELOG=true configures ARCHIVELOG during initial creation.
 Wait-Until "Kafka Connect API" {
     $code = curl.exe -s -o NUL -w "%{http_code}" http://localhost:8083/connectors
     $code -eq "200"
 } 300 5
 
-Write-Host "Registering all source and sink connectors..." -ForegroundColor Green
 $connectorFiles = @(
-    "debezium-source.json",
-    "debezium-postgres-source.json",
-    "debezium-mongodb-source.json",
-    "debezium-oracle-source.json",
-    "iceberg-sink.json",
-    "iceberg-sink-postgres.json",
-    "iceberg-sink-mongodb.json",
-    "iceberg-sink-oracle.json"
+    "debezium-mysql-raw-source.json",
+    "debezium-postgres-raw-source.json",
+    "debezium-mongodb-raw-source.json",
+    "debezium-oracle-raw-source.json",
+    "iceberg-sink-raw-mysql-orders.json",
+    "iceberg-sink-raw-postgres-inventory.json",
+    "iceberg-sink-raw-mongodb-products.json",
+    "iceberg-sink-raw-oracle-transactions.json"
 )
 
+Write-Host "Applying all source and sink connector configurations..." -ForegroundColor Green
 foreach ($file in $connectorFiles) {
-    Write-Host "Registering $file..."
-    $responseFile = New-TemporaryFile
-    try {
-        $statusCode = curl.exe -sS -o $responseFile.FullName -w "%{http_code}" `
-            -X POST http://localhost:8083/connectors `
-            -H "Content-Type: application/json" `
-            -d "@connectors/$file"
-        $body = Get-Content -Raw $responseFile.FullName
-        if ([int]$statusCode -ge 300) {
-            throw "Connector registration failed for $file (HTTP $statusCode): $body"
-        }
-        Write-Host $body
-    } finally {
-        Remove-Item -LiteralPath $responseFile.FullName -Force -ErrorAction SilentlyContinue
+    $path = Join-Path $PSScriptRoot "connectors/$file"
+    $payload = Get-Content -Raw -LiteralPath $path | ConvertFrom-Json
+    $name = $payload.name
+    $escapedName = [Uri]::EscapeDataString($name)
+    $existingStatus = curl.exe -s -o NUL -w "%{http_code}" "http://localhost:8083/connectors/$escapedName"
+
+    if ($existingStatus -eq "200") {
+        Write-Host "Updating $name from $file..."
+        $body = $payload.config | ConvertTo-Json -Depth 20 -Compress
+        Invoke-RestMethod -Method Put `
+            -Uri "http://localhost:8083/connectors/$escapedName/config" `
+            -ContentType "application/json" `
+            -Body $body | Out-Null
+    } elseif ($existingStatus -eq "404") {
+        Write-Host "Creating $name from $file..."
+        $body = $payload | ConvertTo-Json -Depth 20 -Compress
+        Invoke-RestMethod -Method Post `
+            -Uri "http://localhost:8083/connectors" `
+            -ContentType "application/json" `
+            -Body $body | Out-Null
+    } else {
+        throw "Unexpected HTTP $existingStatus while checking connector $name"
     }
 }
 
-Write-Host "All connectors registered. Verify task state via http://localhost:8083/connectors?expand=status" -ForegroundColor Green
+Write-Host "All connector configurations are applied. Verify tasks at http://localhost:8083/connectors?expand=status" -ForegroundColor Green

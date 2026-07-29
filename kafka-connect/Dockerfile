@@ -17,6 +17,8 @@ COPY kafka-connect/plugins/debezium-connector-mongodb /usr/share/java/debezium-c
 COPY kafka-connect/plugins/debezium-connector-oracle /usr/share/java/debezium-connector-oracle
 
 # ── Tabular Iceberg Sink v0.6.19 ─────────────────────────────
+# Custom consumer-metadata fork from Trantuan24/kafka-to-iceberg-connector
+# commit 1f8e11c4a9de6f78d76a17e16927b23fb8baf527
 COPY kafka-connect/plugins/iceberg-kafka-connect /usr/share/java/iceberg-kafka-connect
 
 # ── Custom SMT (DebeziumOpMapper) ────────────────────────────

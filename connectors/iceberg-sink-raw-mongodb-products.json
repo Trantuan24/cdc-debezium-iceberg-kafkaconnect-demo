@@ -1,20 +1,16 @@
 {
-  "name": "iceberg-sink-oracle-transactions",
+  "name": "iceberg-sink-raw-mongodb-products",
   "config": {
-
     "connector.class": "io.tabular.iceberg.connect.IcebergSinkConnector",
     "tasks.max": "1",
-
-    "topics": "oracle.DEBEZIUM.TRANSACTIONS",
-
-    "iceberg.tables": "default.transactions_cdc",
+    "topics": "raw.mongo.mydb_mongo.products",
+    "iceberg.tables": "default.products_cdc",
     "iceberg.tables.auto-create-enabled": "true",
     "iceberg.tables.evolve-schema-enabled": "true",
     "iceberg.tables.schema-force-optional": "true",
-    "iceberg.tables.default-id-columns": "ID",
+    "iceberg.tables.default-id-columns": "_id",
     "iceberg.tables.cdc-field": "__op",
     "iceberg.tables.upsert-mode-enabled": "false",
-
     "iceberg.catalog": "default",
     "iceberg.catalog.type": "hive",
     "iceberg.catalog.uri": "thrift://hive-metastore:9083",
@@ -25,19 +21,25 @@
     "iceberg.catalog.s3.access-key-id": "minioadmin",
     "iceberg.catalog.s3.secret-access-key": "minioadmin",
     "iceberg.catalog.client.region": "us-east-1",
-
     "iceberg.control.commit.interval-ms": "10000",
     "iceberg.control.commit.timeout-ms": "30000",
-
     "value.converter": "org.apache.kafka.connect.json.JsonConverter",
-    "value.converter.schemas.enable": "false",
-    "key.converter": "org.apache.kafka.connect.storage.StringConverter",
-
+    "value.converter.schemas.enable": "true",
+    "key.converter": "org.apache.kafka.connect.json.JsonConverter",
     "consumer.override.auto.offset.reset": "earliest",
     "errors.tolerance": "none",
     "errors.log.enable": "true",
     "errors.log.include.messages": "true",
-
-    "pipeline.source-type": "cdc"
+    "task.engine": "consumer",
+    "consumer.typeingest": "CDC",
+    "cdcID": "387fc772-b633-4446-a7bb-2402bd0c5d9e",
+    "transforms": "unwrap,opMap,dropFields",
+    "transforms.unwrap.type": "io.debezium.connector.mongodb.transforms.ExtractNewDocumentState",
+    "transforms.unwrap.add.fields": "op",
+    "transforms.unwrap.delete.tombstone.handling.mode": "rewrite",
+    "transforms.opMap.type": "com.example.smt.DebeziumOpMapper",
+    "transforms.dropFields.type": "org.apache.kafka.connect.transforms.ReplaceField$Value",
+    "transforms.dropFields.exclude": "__deleted",
+    "key.converter.schemas.enable": "true"
   }
 }

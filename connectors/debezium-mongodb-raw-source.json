@@ -1,0 +1,17 @@
+{
+  "name": "debezium-mongodb-raw-source",
+  "config": {
+    "connector.class": "io.debezium.connector.mongodb.MongoDbConnector",
+    "tasks.max": "1",
+    "mongodb.connection.string": "mongodb://mongodb:27017/?replicaSet=rs0",
+    "topic.prefix": "raw.mongo",
+    "database.include.list": "mydb_mongo",
+    "collection.include.list": "mydb_mongo.products",
+    "snapshot.mode": "initial",
+    "capture.mode": "change_streams_update_full_with_pre_image",
+    "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "value.converter.schemas.enable": "true",
+    "key.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "key.converter.schemas.enable": "true"
+  }
+}

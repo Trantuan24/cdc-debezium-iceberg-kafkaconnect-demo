@@ -1,0 +1,26 @@
+{
+  "name": "debezium-postgres-raw-source",
+  "config": {
+    "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
+    "tasks.max": "1",
+    "database.hostname": "postgres-source",
+    "database.port": "5432",
+    "database.user": "debezium",
+    "database.password": "dbz",
+    "database.dbname": "mydb_pg",
+    "plugin.name": "pgoutput",
+    "slot.name": "dbz_inventory_slot",
+    "publication.name": "dbz_inventory_publication",
+    "publication.autocreate.mode": "disabled",
+    "topic.prefix": "raw.pg",
+    "schema.include.list": "public",
+    "table.include.list": "public.inventory",
+    "snapshot.mode": "initial",
+    "decimal.handling.mode": "precise",
+    "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "value.converter.schemas.enable": "true",
+    "key.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "value.converter.decimal.format": "NUMERIC",
+    "key.converter.schemas.enable": "true"
+  }
+}

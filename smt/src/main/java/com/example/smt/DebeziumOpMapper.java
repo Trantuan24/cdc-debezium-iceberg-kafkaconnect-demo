@@ -11,18 +11,10 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * DebeziumOpMapper
- * 
- * Maps the Debezium __op field values (c/u/d/r) to Tabular Iceberg Sink
- * expected values (I/U/D) so CDC mode works correctly.
+ * Maps the Debezium __op field values (c/u/d/r) to the Iceberg sink CDC
+ * values (I/U/D). Applied in a sink connector after its unwrap SMT adds __op.
  *
- * Applied AFTER io.debezium.transforms.ExtractNewRecordState which adds __op.
- *
- * Mapping:
- * c (create/insert) → I
- * r (snapshot read) → I
- * u (update) → U
- * d (delete) → D
+ * Mapping: c/r -> I, u -> U, d -> D.
  */
 public class DebeziumOpMapper<R extends ConnectRecord<R>> implements Transformation<R> {
 
@@ -32,8 +24,7 @@ public class DebeziumOpMapper<R extends ConnectRecord<R>> implements Transformat
     public R apply(R record) {
         if (record.value() == null)
             return record;
-
-        // ── Schema-based (Struct) ──────────────────────────────────
+        // Schema-based (Struct)
         if (record.valueSchema() != null && record.value() instanceof Struct) {
             Struct value = (Struct) record.value();
 
@@ -62,8 +53,7 @@ public class DebeziumOpMapper<R extends ConnectRecord<R>> implements Transformat
                     record.valueSchema(), newValue,
                     record.timestamp());
         }
-
-        // ── Schemaless (Map) ───────────────────────────────────────
+        // Schemaless (Map)
         if (record.value() instanceof Map) {
             @SuppressWarnings("unchecked")
             Map<String, Object> value = (Map<String, Object>) record.value();

@@ -32,6 +32,19 @@ if (attempts <= 0) {
 }
 
 db = db.getSiblingDB("mydb_mongo");
+
+// MongoDB pre-images let Debezium 2.5 include the original _id in rewritten
+// DELETE events. Iceberg equality deletes require that identifier in the value.
+if (!db.getCollectionNames().includes("products")) {
+  db.createCollection("products");
+}
+const preImageResult = db.runCommand({
+  collMod: "products",
+  changeStreamPreAndPostImages: { enabled: true }
+});
+if (!preImageResult.ok) {
+  throw new Error("Failed to enable pre-images for products: " + tojson(preImageResult));
+}
 const products = [
   {
     sku: "PROD-001",

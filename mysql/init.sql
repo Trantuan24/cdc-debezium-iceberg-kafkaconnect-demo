@@ -18,3 +18,7 @@ CREATE TABLE IF NOT EXISTS orders (
     updated_at    TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (id)
 );
+-- Seed one row so a fresh Debezium snapshot always exposes op=r for MySQL,
+-- matching the seeded PostgreSQL, MongoDB, and Oracle demo sources.
+INSERT INTO orders (id, customer_name, product, amount, status)
+VALUES (1, 'Snapshot Seed', 'Demo Product', 10.00, 'seeded');
