@@ -1,0 +1,19 @@
+# Binary dependencies and build outputs
+*.jar
+*.class
+**/target/
+
+# Runtime and local data
+.env
+.env.*
+!.env.example
+*.log
+logs/
+tmp/
+temp/
+
+# Editor and operating-system files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

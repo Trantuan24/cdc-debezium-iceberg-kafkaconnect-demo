@@ -1,0 +1,283 @@
+volumes:
+  kafka-data-v37: {}
+  mysql-data: {}
+  minio-data: {}
+  postgres-data: {}
+  mongodb-data: {}
+  oracle-data: {}
+
+services:
+  # ─── MySQL ───────────────────────────────────────────────
+  mysql:
+    image: mysql:8.0
+    container_name: mysql
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: mydb
+      MYSQL_USER: debezium
+      MYSQL_PASSWORD: dbz
+    command:
+      - --server-id=1
+      - --log-bin=mysql-bin
+      - --binlog-format=ROW
+      - --binlog-row-image=FULL
+      - --binlog-expire-logs-seconds=259200
+      - --gtid-mode=ON
+      - --enforce-gtid-consistency=ON
+    volumes:
+      - ./mysql/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-proot"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ─── PostgreSQL (Source Database) ────────────────────────
+  postgres-source:
+    image: postgres:14
+    container_name: postgres-source
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_DB: mydb_pg
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    command:
+      - postgres
+      - -c
+      - wal_level=logical
+      - -c
+      - max_replication_slots=4
+      - -c
+      - max_wal_senders=4
+    volumes:
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d mydb_pg"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ─── MongoDB (Source Database) ───────────────────────────
+  mongodb:
+    image: mongo:7.0
+    hostname: mongodb
+    container_name: mongodb
+    ports:
+      - "27017:27017"
+    command: ["mongod", "--replSet", "rs0", "--bind_ip_all"]
+    volumes:
+      - mongodb-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # MongoDB – Khởi tạo Replica Set + data mẫu
+  mongo-init:
+    image: mongo:7.0
+    container_name: mongo-init
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    volumes:
+      - ./mongodb/init.js:/init.js
+    entrypoint:
+      - bash
+      - -c
+      - |
+        echo "Initializing MongoDB replica set..."
+        mongosh mongodb:27017/admin /init.js
+        echo "MongoDB init done."
+    restart: "no"
+
+  # ─── Oracle XE 21c (Source Database) ─────────────────────
+  # NOTE: Oracle image khởi động lâu (~3-5 phút). Kafka Connect sẽ retry.
+  oracle:
+    image: gvenzl/oracle-xe:21-slim
+    hostname: oracle
+    container_name: oracle
+    ports:
+      - "1521:1521"
+      - "5500:5500"  # Enterprise Manager Express
+    environment:
+      ORACLE_PASSWORD: oracle123         # SYS / SYSTEM password
+    volumes:
+      - oracle-data:/opt/oracle/oradata
+      - ./oracle/init.sql:/container-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "healthcheck.sh"]
+      interval: 30s
+      timeout: 10s
+      retries: 20
+      start_period: 180s  # Oracle cần ~3 phút để start lần đầu
+
+  # ─── Kafka (KRaft mode – no ZooKeeper, same as old project) ────
+  kafka:
+    image: confluentinc/cp-kafka:7.7.1
+    hostname: kafka-cdc
+    container_name: kafka-cdc
+    volumes:
+      - kafka-data-v37:/var/lib/kafka/data
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_LISTENERS: BROKER://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093,EXTERNAL://0.0.0.0:29092
+      KAFKA_ADVERTISED_LISTENERS: BROKER://kafka-cdc:9092,EXTERNAL://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: BROKER:PLAINTEXT,CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: BROKER
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka-cdc:9093
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_OFFSETS_TOPIC_NUM_PARTITIONS: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      CLUSTER_ID: E-JXLvCaTiaUYDb1LwZ1JQ
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "9092"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ─── Kafka Connect ───────────────────────────────────────
+  connect:
+    build:
+      context: .
+      dockerfile: kafka-connect/Dockerfile
+    hostname: connect
+    container_name: connect
+    depends_on:
+      kafka:
+        condition: service_healthy
+      mysql:
+        condition: service_healthy
+      postgres-source:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+      oracle:
+        condition: service_healthy
+      hive-metastore:
+        condition: service_started
+    ports:
+      - "8083:8083"
+    environment:
+      CONNECT_BOOTSTRAP_SERVERS: kafka-cdc:9092
+      CONNECT_REST_ADVERTISED_HOST_NAME: connect
+      CONNECT_REST_PORT: 8083
+      CONNECT_GROUP_ID: kc-v37
+      CONNECT_CONFIG_STORAGE_TOPIC: kc-v37-config
+      CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_OFFSET_STORAGE_TOPIC: kc-v37-offsets
+      CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_STATUS_STORAGE_TOPIC: kc-v37-status
+      CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_KEY_CONVERTER_SCHEMAS_ENABLE: "false"
+      CONNECT_VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_VALUE_CONVERTER_SCHEMAS_ENABLE: "false"
+      CONNECT_PLUGIN_PATH: /usr/share/java,/usr/share/confluent-hub-components
+      CONNECT_OFFSET_FLUSH_INTERVAL_MS: 10000
+      KAFKA_HEAP_OPTS: "-Xms512M -Xmx4G"
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_SECRET_ACCESS_KEY: minioadmin
+      CONNECT_LOG4J_LOGGERS: "org.apache.iceberg.connect=DEBUG,com.example.kafka.connect.smt=DEBUG"
+    volumes:
+      - ./connectors:/test/configs
+    entrypoint:
+      - bash
+      - -c
+      - |
+        echo "Waiting for Hive Metastore to be ready..."
+        sleep 30
+        echo "Starting Kafka Connect..."
+        /etc/confluent/docker/run
+
+  # ─── MinIO ───────────────────────────────────────────────
+  minio:
+    image: minio/minio
+    hostname: minio
+    container_name: minio
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio-data:/data
+
+  # MinIO bucket init (same as old project)
+  create-bucket:
+    image: minio/mc
+    container_name: create-bucket
+    depends_on:
+      - minio
+    volumes:
+      - minio-data:/data
+    entrypoint: mc mb /data/bucket
+
+  # ─── Postgres (Hive Metastore backend) ───────────────────
+  postgres:
+    image: postgres:14
+    container_name: postgres
+    environment:
+      POSTGRES_DB: metastore
+      POSTGRES_USER: hive
+      POSTGRES_PASSWORD: hive
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hive -d metastore"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ─── Hive Metastore ──────────────────────────────────────
+  hive-metastore:
+    build:
+      context: ./hive
+      dockerfile: Dockerfile
+    hostname: hive-metastore
+    container_name: hive-metastore
+    depends_on:
+      - postgres
+      - minio
+      - create-bucket
+    ports:
+      - "9083:9083"
+    environment:
+      SERVICE_NAME: metastore
+      DB_DRIVER: postgres
+      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_SECRET_ACCESS_KEY: minioadmin
+      AWS_REGION: us-east-1
+    volumes:
+      - ./hive/hive-site.xml:/opt/hive/conf/hive-site.xml
+
+  # ─── Trino ───────────────────────────────────────────────
+  trino:
+    image: trinodb/trino:468
+    hostname: trino
+    container_name: trino
+    depends_on:
+      - hive-metastore
+      - minio
+    ports:
+      - "8080:8080"
+    environment:
+      - AWS_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=minioadmin
+      - AWS_SECRET_ACCESS_KEY=minioadmin
+    volumes:
+      - ./trino/catalog:/etc/trino/catalog

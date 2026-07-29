@@ -1,0 +1,39 @@
+{
+  "name": "debezium-mysql-source",
+  "config": {
+
+    "connector.class": "io.debezium.connector.mysql.MySqlConnector",
+    "tasks.max": "1",
+
+    "database.hostname": "mysql",
+    "database.port": "3306",
+    "database.user": "debezium",
+    "database.password": "dbz",
+    "database.server.id": "184056",
+
+    "topic.prefix": "mysql",
+    "database.include.list": "mydb",
+    "table.include.list": "mydb.orders",
+
+    "snapshot.mode": "initial",
+    "decimal.handling.mode": "double",
+    "include.schema.changes": "false",
+
+    "schema.history.internal.kafka.bootstrap.servers": "kafka-cdc:9092",
+    "schema.history.internal.kafka.topic": "schema-history.mysql.mydb",
+    "schema.history.internal.store.only.captured.tables.ddl": "true",
+
+    "transforms": "unwrap,opMap,dropFields",
+    "transforms.unwrap.type": "io.debezium.transforms.ExtractNewRecordState",
+    "transforms.unwrap.add.fields": "op",
+    "transforms.unwrap.delete.handling.mode": "rewrite",
+    "transforms.unwrap.drop.tombstones": "true",
+    "transforms.opMap.type": "com.example.smt.DebeziumOpMapper",
+    "transforms.dropFields.type": "org.apache.kafka.connect.transforms.ReplaceField$Value",
+    "transforms.dropFields.exclude": "__deleted",
+
+    "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "value.converter.schemas.enable": "false",
+    "key.converter": "org.apache.kafka.connect.storage.StringConverter"
+  }
+}
