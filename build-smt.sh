@@ -8,14 +8,14 @@ ICEBERG_FORK_COMMIT="1f8e11c4a9de6f78d76a17e16927b23fb8baf527"
 ICEBERG_FORK_SHA256="7ec26e0cccf06c293f2dca133b29be6b22c01c71154254d357d76c66a77ab792"
 ICEBERG_FORK_URL="https://raw.githubusercontent.com/Trantuan24/kafka-to-iceberg-connector/${ICEBERG_FORK_COMMIT}/plugins/iceberg-kafka-connect/lib/iceberg-kafka-connect-custom-pipeline-meta.jar"
 
-echo "[1/4] Building DebeziumOpMapper SMT..."
+echo "[1/4] Building custom sink-side CDC SMTs..."
 (
   cd smt
   mvn clean package -q
 )
 mkdir -p kafka-connect/plugins/custom-smt
 cp smt/target/debezium-op-mapper-1.0.jar kafka-connect/plugins/custom-smt/
-echo "      DebeziumOpMapper ready"
+echo "      Custom CDC SMTs ready"
 
 echo "[2/4] Preparing the pinned Iceberg Sink fork..."
 mkdir -p "${ICEBERG_PLUGIN_DIR}"

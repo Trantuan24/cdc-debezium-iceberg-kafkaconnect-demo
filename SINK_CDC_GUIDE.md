@@ -6,6 +6,7 @@ The downstream pipeline starts from canonical raw Debezium events:
 raw Kafka topic (schema + Debezium envelope; op=c/r/u/d)
   -> sink-side Debezium unwrap SMT
   -> sink-side DebeziumOpMapper (c,r -> I; u -> U; d -> D)
+  -> sink-side IsoTimestampNormalizer (UTC yyyy-MM-ddTHH:mm:ssZ)
   -> sink-side helper-field cleanup
   -> custom IcebergSinkConnector in CDC mode
   -> Iceberg v2 table in MinIO
@@ -16,7 +17,7 @@ raw Kafka topic (schema + Debezium envelope; op=c/r/u/d)
 
 Kafka Connect loads two separate artifacts:
 
-1. `debezium-op-mapper-1.0.jar` maps Debezium operations to the sink CDC contract in temporary field `__op`.
+1. `debezium-op-mapper-1.0.jar` contains `DebeziumOpMapper` and `IsoTimestampNormalizer`. It maps Debezium operations to the sink CDC contract in temporary field `__op`, then normalizes configured timestamp fields to UTC ISO strings.
 2. `iceberg-kafka-connect-custom-pipeline-meta.jar` is used unchanged from commit `1f8e11c4a9de6f78d76a17e16927b23fb8baf527` of the user's fork. Its pinned SHA-256 is `7ec26e0cccf06c293f2dca133b29be6b22c01c71154254d357d76c66a77ab792`.
 
 The fork's API-oriented `CustomCDCTransform` is not used. It expects an API payload shaped like `{data,key,type,version,...}`, while this pipeline receives Debezium envelopes. `DebeziumOpMapper` is the narrow adapter needed for CDC events.
@@ -38,7 +39,9 @@ Every sink uses schema-aware JSON keys/values and the same transform order:
   "key.converter.schemas.enable": "true",
   "value.converter": "org.apache.kafka.connect.json.JsonConverter",
   "value.converter.schemas.enable": "true",
-  "transforms": "unwrap,opMap,dropFields",
+  "transforms": "unwrap,opMap,normalizeTime,dropFields",
+  "transforms.normalizeTime.type": "com.example.smt.IsoTimestampNormalizer",
+  "transforms.normalizeTime.fields": "created_at,updated_at",
   "iceberg.tables.cdc-field": "__op",
   "iceberg.tables.auto-create-enabled": "true",
   "iceberg.tables.evolve-schema-enabled": "true",
@@ -49,6 +52,8 @@ Every sink uses schema-aware JSON keys/values and the same transform order:
 ```
 
 Relational sources use `io.debezium.transforms.ExtractNewRecordState`; MongoDB uses `io.debezium.connector.mongodb.transforms.ExtractNewDocumentState`. `DebeziumOpMapper` must run after unwrap. The sink removes Debezium helper fields after mapping.
+
+Timestamp fields are normalized after unwrap and before Iceberg schema inference. The destination contract is a UTC ISO string in the form `yyyy-MM-ddTHH:mm:ssZ` for configured time fields. For Oracle the configured field names are uppercase (`CREATED_AT,UPDATED_AT`) because that is the Connect record schema before Iceberg lowercases table columns.
 
 `__op` is not an Iceberg business column. It is consumed as the CDC discriminator while the connector creates data and equality-delete files.
 
@@ -99,6 +104,7 @@ The source and sink both use schema-aware JSON. Verified destination types inclu
 - PostgreSQL `price`: `DECIMAL(38,2)`
 - MongoDB `price`: `DOUBLE`
 - Oracle `ID`/`ACCOUNT_ID`: `BIGINT`; `AMOUNT`: `DECIMAL(38,2)`
+- Destination time fields across MySQL, PostgreSQL, MongoDB, and Oracle: UTC ISO strings such as `2026-07-29T09:51:08Z`
 
 Oracle source `NUMBER` columns use explicit precision/scale. This prevents `VariableScaleDecimal` and avoids first-record type inference errors. Auto-create/evolution is convenient for the lab; production should predefine and govern schemas.
 

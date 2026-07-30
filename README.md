@@ -21,6 +21,7 @@ Database log / MongoDB Change Stream
   -> raw Kafka topic (schema + Debezium envelope; op=c/r/u/d)
   -> sink-side ExtractNewRecordState / ExtractNewDocumentState
   -> sink-side DebeziumOpMapper: c,r -> I; u -> U; d -> D
+  -> sink-side IsoTimestampNormalizer: UTC yyyy-MM-ddTHH:mm:ssZ
   -> temporary __op CDC field
   -> custom Iceberg Kafka Connect sink fork
   -> Iceberg format-v2 table on MinIO + Hive Metastore
@@ -38,10 +39,10 @@ See [SOURCE_CDC_GUIDE.md](SOURCE_CDC_GUIDE.md) for source setup, [SINK_CDC_GUIDE
 - Apache Iceberg Kafka Connect sink fork pinned to commit `1f8e11c4a9de6f78d76a17e16927b23fb8baf527`
 - Pinned sink JAR SHA-256: `7ec26e0cccf06c293f2dca133b29be6b22c01c71154254d357d76c66a77ab792`
 - MinIO, Hive Metastore with PostgreSQL backend, and Trino 468
-- Custom sink-side Java SMT `DebeziumOpMapper`
+- Custom sink-side Java SMTs `DebeziumOpMapper` and `IsoTimestampNormalizer`
 - CDC snapshot lineage: `task.engine`, `consumer.typeingest`, `consumer.connectorname`, `consumer.ingest.time`, and `consumer.vtts.time`; `cdcID` stays in connector configuration only
 
-`build-smt.sh` downloads the unchanged pinned sink JAR and verifies its checksum. It builds only the small operation-mapper SMT.
+`build-smt.sh` downloads the unchanged pinned sink JAR and verifies its checksum. It builds the small sink-side SMT jar used for operation mapping and timestamp normalization.
 
 ## Start
 

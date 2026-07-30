@@ -65,8 +65,12 @@ $mongoInsert = "db.products.insertOne({_id:'$MongoId',sku:'CDC-910001',name:'CDC
 docker exec mongodb mongosh mongodb://mongodb:27017/mydb_mongo --quiet --eval $mongoInsert
 
 # Oracle
-"INSERT INTO debezium.transactions (txn_ref,account_id,amount,txn_type,status) VALUES ('$OracleRef',99001,111.25,'CREDIT','PENDING'); COMMIT; EXIT;" |
-  docker exec -i oracle sqlplus -s debezium/dbz@//localhost:1521/XEPDB1
+@"
+INSERT INTO debezium.transactions (txn_ref,account_id,amount,txn_type,status)
+VALUES ('$OracleRef',99001,111.25,'CREDIT','PENDING');
+COMMIT;
+EXIT;
+"@ | docker exec -i oracle sqlplus -s debezium/dbz@//localhost:1521/XEPDB1
 
 Start-Sleep -Seconds 15
 ```
@@ -98,8 +102,13 @@ $mongoUpdate = "db.products.updateOne({_id:'$MongoId'},{`$set:{price:222.50,stoc
 docker exec mongodb mongosh mongodb://mongodb:27017/mydb_mongo --quiet --eval $mongoUpdate
 
 # Oracle
-"UPDATE debezium.transactions SET amount=222.50,status='COMPLETED',updated_at=SYSTIMESTAMP WHERE txn_ref='$OracleRef'; COMMIT; EXIT;" |
-  docker exec -i oracle sqlplus -s debezium/dbz@//localhost:1521/XEPDB1
+@"
+UPDATE debezium.transactions
+SET amount=222.50,status='COMPLETED',updated_at=SYSTIMESTAMP
+WHERE txn_ref='$OracleRef';
+COMMIT;
+EXIT;
+"@ | docker exec -i oracle sqlplus -s debezium/dbz@//localhost:1521/XEPDB1
 
 Start-Sleep -Seconds 15
 ```
@@ -131,8 +140,11 @@ $mongoDelete = "db.products.deleteOne({_id:'$MongoId'})"
 docker exec mongodb mongosh mongodb://mongodb:27017/mydb_mongo --quiet --eval $mongoDelete
 
 # Oracle
-"DELETE FROM debezium.transactions WHERE txn_ref='$OracleRef'; COMMIT; EXIT;" |
-  docker exec -i oracle sqlplus -s debezium/dbz@//localhost:1521/XEPDB1
+@"
+DELETE FROM debezium.transactions WHERE txn_ref='$OracleRef';
+COMMIT;
+EXIT;
+"@ | docker exec -i oracle sqlplus -s debezium/dbz@//localhost:1521/XEPDB1
 
 Start-Sleep -Seconds 15
 ```
@@ -206,7 +218,26 @@ docker exec trino trino --execute "DESCRIBE iceberg.default.transactions_cdc"
 
 The final schemas must not contain `__op`, `before`, `after`, `source`, or `__deleted`.
 
-## 9. Inspect Iceberg snapshot metadata
+
+## 9. Verify destination timestamp format
+
+The sink normalizes configured timestamp fields to UTC ISO strings in every Iceberg table. Raw Kafka topics still keep the original Debezium logical timestamp representation.
+
+```powershell
+docker exec trino trino --execute "SELECT created_at,updated_at FROM iceberg.default.orders_cdc LIMIT 5"
+docker exec trino trino --execute "SELECT created_at,updated_at FROM iceberg.default.inventory_cdc LIMIT 5"
+docker exec trino trino --execute "SELECT created_at FROM iceberg.default.products_cdc LIMIT 5"
+docker exec trino trino --execute "SELECT created_at,updated_at FROM iceberg.default.transactions_cdc LIMIT 5"
+```
+
+Expected destination format:
+
+```text
+2026-07-29T09:51:08Z
+```
+
+If existing Iceberg tables were created before `IsoTimestampNormalizer` was enabled, reset/recreate the demo tables before expecting the physical column types to change.
+## 10. Inspect Iceberg snapshot metadata
 
 ```powershell
 function Show-IcebergSnapshots([string]$Table) {
@@ -236,7 +267,7 @@ Expected custom metadata:
 - `ingest_time` and `vtts_time` are populated on normal commits
 - `cdc_id` and `old_source_type` are `NULL`/blank because they must not be written into snapshot summaries
 
-## 10. Recovery test
+## 11. Recovery test
 
 ```powershell
 docker compose restart connect
