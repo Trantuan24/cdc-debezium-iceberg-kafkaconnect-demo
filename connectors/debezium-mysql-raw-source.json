@@ -10,7 +10,7 @@
     "database.server.id": "184056",
     "topic.prefix": "raw.mysql",
     "database.include.list": "mydb",
-    "table.include.list": "mydb.orders",
+    "table.include.list": "mydb.orders,mydb.customers",
     "snapshot.mode": "initial",
     "decimal.handling.mode": "precise",
     "include.schema.changes": "false",

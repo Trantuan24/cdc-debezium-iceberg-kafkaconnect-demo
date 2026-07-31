@@ -4,7 +4,7 @@
                    "connector.class":  "io.tabular.iceberg.connect.IcebergSinkConnector",
                    "tasks.max":  "1",
                    "topics":  "raw.oracle.DEBEZIUM.TRANSACTIONS",
-                   "iceberg.tables":  "default.transactions_cdc",
+                   "iceberg.tables":  "oracle_xepdb1_debezium.transactions_current",
                    "iceberg.tables.auto-create-enabled":  "true",
                    "iceberg.tables.evolve-schema-enabled":  "true",
                    "iceberg.tables.schema-force-optional":  "true",

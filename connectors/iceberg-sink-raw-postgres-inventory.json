@@ -4,7 +4,7 @@
                    "connector.class":  "io.tabular.iceberg.connect.IcebergSinkConnector",
                    "tasks.max":  "1",
                    "topics":  "raw.pg.public.inventory",
-                   "iceberg.tables":  "default.inventory_cdc",
+                   "iceberg.tables":  "postgres_mydb_pg_public.inventory_current",
                    "iceberg.tables.auto-create-enabled":  "true",
                    "iceberg.tables.evolve-schema-enabled":  "true",
                    "iceberg.tables.schema-force-optional":  "true",
