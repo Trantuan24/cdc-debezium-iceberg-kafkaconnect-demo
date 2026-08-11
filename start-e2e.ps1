@@ -31,6 +31,33 @@ Wait-Until "Oracle" {
     $status -eq "healthy"
 } 600 10
 
+Wait-Until "Trino query engine" {
+    $previousErrorAction = $ErrorActionPreference
+    $ErrorActionPreference = "SilentlyContinue"
+    docker exec trino trino --execute "SELECT 1" 2>$null | Out-Null
+    $trinoExitCode = $LASTEXITCODE
+    $ErrorActionPreference = $previousErrorAction
+    $trinoExitCode -eq 0
+} 300 5
+
+$icebergSchemas = @(
+    "mysql_mydb",
+    "postgres_mydb_pg_public",
+    "mongo_mydb_mongo",
+    "oracle_xepdb1_debezium"
+)
+
+Write-Host "Ensuring source-aligned Iceberg schemas exist..." -ForegroundColor Green
+foreach ($schema in $icebergSchemas) {
+    $previousErrorAction = $ErrorActionPreference
+    $ErrorActionPreference = "SilentlyContinue"
+    docker exec trino trino --execute "CREATE SCHEMA IF NOT EXISTS iceberg.$schema" 2>$null | Out-Null
+    $trinoExitCode = $LASTEXITCODE
+    $ErrorActionPreference = $previousErrorAction
+    if ($trinoExitCode -ne 0) {
+        throw "Failed to create Iceberg schema $schema"
+    }
+}
 # ORACLE_ENABLE_ARCHIVELOG=true configures ARCHIVELOG during initial creation.
 Wait-Until "Kafka Connect API" {
     $code = curl.exe -s -o NUL -w "%{http_code}" http://localhost:8083/connectors
@@ -43,9 +70,15 @@ $connectorFiles = @(
     "debezium-mongodb-raw-source.json",
     "debezium-oracle-raw-source.json",
     "iceberg-sink-raw-mysql-orders.json",
+    "iceberg-sink-raw-mysql-customers.json",
     "iceberg-sink-raw-postgres-inventory.json",
     "iceberg-sink-raw-mongodb-products.json",
-    "iceberg-sink-raw-oracle-transactions.json"
+    "iceberg-sink-raw-oracle-transactions.json",
+    "iceberg-append-raw-mysql-orders.json",
+    "iceberg-append-raw-mysql-customers.json",
+    "iceberg-append-raw-postgres-inventory.json",
+    "iceberg-append-raw-mongodb-products.json",
+    "iceberg-append-raw-oracle-transactions.json"
 )
 
 Write-Host "Applying all source and sink connector configurations..." -ForegroundColor Green

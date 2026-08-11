@@ -14,6 +14,15 @@ until curl -sf "${CONNECT_HOST}/connectors" >/dev/null; do
 done
 
 echo "Kafka Connect is ready."
+echo "Waiting for the Trino query engine..."
+until docker exec trino trino --execute "SELECT 1" >/dev/null 2>&1; do
+  sleep 3
+done
+
+echo "Ensuring source-aligned Iceberg schemas exist..."
+for schema in mysql_mydb postgres_mydb_pg_public mongo_mydb_mongo oracle_xepdb1_debezium; do
+  docker exec trino trino --execute "CREATE SCHEMA IF NOT EXISTS iceberg.${schema}" >/dev/null
+done
 
 register_connector() {
   local file="$1"
@@ -39,15 +48,21 @@ files=(
   connectors/debezium-mongodb-raw-source.json
   connectors/debezium-oracle-raw-source.json
   connectors/iceberg-sink-raw-mysql-orders.json
+  connectors/iceberg-sink-raw-mysql-customers.json
   connectors/iceberg-sink-raw-postgres-inventory.json
   connectors/iceberg-sink-raw-mongodb-products.json
   connectors/iceberg-sink-raw-oracle-transactions.json
+  connectors/iceberg-append-raw-mysql-orders.json
+  connectors/iceberg-append-raw-mysql-customers.json
+  connectors/iceberg-append-raw-postgres-inventory.json
+  connectors/iceberg-append-raw-mongodb-products.json
+  connectors/iceberg-append-raw-oracle-transactions.json
 )
 
 for file in "${files[@]}"; do
   register_connector "$file"
 done
 
-echo "All eight connector configurations are applied."
+echo "All fourteen connector configurations are applied."
 curl -sf "${CONNECT_HOST}/connectors?expand=status"
 echo ""

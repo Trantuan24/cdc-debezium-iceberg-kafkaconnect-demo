@@ -1,0 +1,40 @@
+services:
+  connector-cdc-service:
+    image: ${CONNECT_IMAGE:-connector-cdc-service:1.0.0}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    hostname: ${CONNECT_ADVERTISED_HOST_NAME:-connector-cdc-service}
+    ports:
+      - "${CONNECT_HOST_PORT:-8083}:8083"
+    environment:
+      CONNECT_BOOTSTRAP_SERVERS: ${KAFKA_BOOTSTRAP_SERVERS:?Set KAFKA_BOOTSTRAP_SERVERS in .env}
+      CONNECT_REST_ADVERTISED_HOST_NAME: ${CONNECT_ADVERTISED_HOST_NAME:-connector-cdc-service}
+      CONNECT_REST_PORT: "8083"
+      CONNECT_GROUP_ID: ${CONNECT_GROUP_ID:-connector-cdc-service}
+      CONNECT_CONFIG_STORAGE_TOPIC: ${CONNECT_CONFIG_STORAGE_TOPIC:-connector-cdc-service-configs}
+      CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR: ${CONNECT_INTERNAL_REPLICATION_FACTOR:-1}
+      CONNECT_OFFSET_STORAGE_TOPIC: ${CONNECT_OFFSET_STORAGE_TOPIC:-connector-cdc-service-offsets}
+      CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR: ${CONNECT_INTERNAL_REPLICATION_FACTOR:-1}
+      CONNECT_STATUS_STORAGE_TOPIC: ${CONNECT_STATUS_STORAGE_TOPIC:-connector-cdc-service-status}
+      CONNECT_STATUS_STORAGE_REPLICATION_FACTOR: ${CONNECT_INTERNAL_REPLICATION_FACTOR:-1}
+      CONNECT_KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_KEY_CONVERTER_SCHEMAS_ENABLE: "false"
+      CONNECT_VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_VALUE_CONVERTER_SCHEMAS_ENABLE: "false"
+      CONNECT_PLUGIN_PATH: /usr/share/java,/usr/share/confluent-hub-components
+      CONNECT_OFFSET_FLUSH_INTERVAL_MS: ${CONNECT_OFFSET_FLUSH_INTERVAL_MS:-10000}
+      CONNECT_SECURITY_PROTOCOL: ${CONNECT_SECURITY_PROTOCOL:-PLAINTEXT}
+      KAFKA_HEAP_OPTS: ${KAFKA_HEAP_OPTS:--Xms512M -Xmx4G}
+      CONNECT_LOG4J_LOGGERS: ${CONNECT_LOG4J_LOGGERS:-org.apache.iceberg.connect=INFO,com.example.smt=INFO,io.debezium=INFO}
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN:-}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8083/connectors"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 45s

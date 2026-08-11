@@ -4,34 +4,32 @@ The downstream pipeline starts from canonical raw Debezium events:
 
 ```text
 raw Kafka topic (schema + Debezium envelope; op=c/r/u/d)
-  -> sink-side Debezium unwrap SMT
-  -> sink-side DebeziumOpMapper (c,r -> I; u -> U; d -> D)
-  -> sink-side IsoTimestampNormalizer (UTC yyyy-MM-ddTHH:mm:ssZ)
-  -> sink-side helper-field cleanup
-  -> custom IcebergSinkConnector in CDC mode
-  -> Iceberg v2 table in MinIO
-  -> Hive Metastore -> Trino
+  |-> current sink: unwrap -> op map -> timestamp normalization -> *_current
+  `-> append sink: StringConverter -> RawAppendEnvelope -> *_cdc
+       (id, unchanged record string, ngay_cap_nhat)
+  -> Iceberg v2 tables in MinIO -> Hive Metastore -> Trino
 ```
 
 ## Custom artifacts
 
 Kafka Connect loads two separate artifacts:
 
-1. `debezium-op-mapper-1.0.jar` contains `DebeziumOpMapper` and `IsoTimestampNormalizer`. It maps Debezium operations to the sink CDC contract in temporary field `__op`, then normalizes configured timestamp fields to UTC ISO strings.
+1. `debezium-op-mapper-1.0.jar` contains `DebeziumOpMapper`, `IsoTimestampNormalizer`, and `RawAppendEnvelope`. The first two materialize current state; the third creates the independent three-column raw append record.
 2. `iceberg-kafka-connect-custom-pipeline-meta.jar` is used unchanged from commit `1f8e11c4a9de6f78d76a17e16927b23fb8baf527` of the user's fork. Its pinned SHA-256 is `7ec26e0cccf06c293f2dca133b29be6b22c01c71154254d357d76c66a77ab792`.
 
 The fork's API-oriented `CustomCDCTransform` is not used. It expects an API payload shaped like `{data,key,type,version,...}`, while this pipeline receives Debezium envelopes. `DebeziumOpMapper` is the narrow adapter needed for CDC events.
 
-## Four sinks, one contract
+## Current-state sinks
 
 | Connector | Raw topic | Iceberg table | Identifier column |
 |---|---|---|---|
-| `iceberg-sink-raw-mysql-orders` | `raw.mysql.mydb.orders` | `default.orders_cdc` | `id` |
-| `iceberg-sink-raw-postgres-inventory` | `raw.pg.public.inventory` | `default.inventory_cdc` | `id` |
-| `iceberg-sink-raw-mongodb-products` | `raw.mongo.mydb_mongo.products` | `default.products_cdc` | `_id` |
-| `iceberg-sink-raw-oracle-transactions` | `raw.oracle.DEBEZIUM.TRANSACTIONS` | `default.transactions_cdc` | `ID` |
+| `iceberg-sink-raw-mysql-orders` | `raw.mysql.mydb.orders` | `mysql_mydb.orders_current` | `id` |
+| `iceberg-sink-raw-mysql-customers` | `raw.mysql.mydb.customers` | `mysql_mydb.customers_current` | `id` |
+| `iceberg-sink-raw-postgres-inventory` | `raw.pg.public.inventory` | `postgres_mydb_pg_public.inventory_current` | `id` |
+| `iceberg-sink-raw-mongodb-products` | `raw.mongo.mydb_mongo.products` | `mongo_mydb_mongo.products_current` | `_id` |
+| `iceberg-sink-raw-oracle-transactions` | `raw.oracle.DEBEZIUM.TRANSACTIONS` | `oracle_xepdb1_debezium.transactions_current` | `ID` |
 
-Every sink uses schema-aware JSON keys/values and the same transform order:
+Every current-state sink uses schema-aware JSON keys/values and the same transform order:
 
 ```json
 {
@@ -63,12 +61,36 @@ The destination receives the current business row/document fields, not the whole
 
 | Table | Business columns |
 |---|---|
-| `orders_cdc` | `id`, `customer_name`, `amount`, `status`, `updated_at` |
-| `inventory_cdc` | source `inventory` columns, including precise decimal `price` |
-| `products_cdc` | flattened MongoDB document fields, including `_id` and `price` |
-| `transactions_cdc` | Oracle transaction fields; `ID`/`ACCOUNT_ID` become Iceberg `BIGINT`, `AMOUNT` remains decimal |
+| `orders_current` | `id`, `customer_name`, `amount`, `status`, `updated_at` |
+| `customers_current` | `id`, `full_name`, `email`, `status`, `updated_at` |
+| `inventory_current` | source `inventory` columns, including precise decimal `price` |
+| `products_current` | flattened MongoDB document fields, including `_id` and `price` |
+| `transactions_current` | Oracle transaction fields; `ID`/`ACCOUNT_ID` become Iceberg `BIGINT`, `AMOUNT` remains decimal |
 
 Fields such as `before`, `after`, `source`, raw `op`, `__deleted`, and temporary `__op` do not become destination business columns.
+
+
+## Append-only raw CDC contract
+
+A second sink connector consumes each raw topic with its own consumer group and writes the matching `*_cdc` table. It does not unwrap or map `r/c/u/d`.
+
+| Raw topic | Append connector | Iceberg table |
+|---|---|---|
+| `raw.mysql.mydb.orders` | `iceberg-append-raw-mysql-orders` | `mysql_mydb.orders_cdc` |
+| `raw.mysql.mydb.customers` | `iceberg-append-raw-mysql-customers` | `mysql_mydb.customers_cdc` |
+| `raw.pg.public.inventory` | `iceberg-append-raw-postgres-inventory` | `postgres_mydb_pg_public.inventory_cdc` |
+| `raw.mongo.mydb_mongo.products` | `iceberg-append-raw-mongodb-products` | `mongo_mydb_mongo.products_cdc` |
+| `raw.oracle.DEBEZIUM.TRANSACTIONS` | `iceberg-append-raw-oracle-transactions` | `oracle_xepdb1_debezium.transactions_cdc` |
+
+Every raw append table has exactly:
+
+| Column | Contract |
+|---|---|
+| `id` | Deterministic `topic-partition-offset`, for example `raw.mysql.mydb.orders-0-12` |
+| `record` | Unchanged UTF-8 Kafka value received through `StringConverter` |
+| `ngay_cap_nhat` | UTC processing time generated by the sink SMT |
+
+`RawAppendEnvelope` skips Debezium tombstones because their Kafka value is null. Records with a non-null value, including `r`, `c`, `u`, and `d`, are append-only. The raw JSON is never parsed or reformatted; runtime verification compares its SHA-256 with the corresponding Kafka value.
 
 ## MongoDB delete requirement
 
@@ -142,11 +164,11 @@ SELECT
   element_at(summary, 'consumer.vtts.time') AS vtts_time,
   element_at(summary, 'pipeline.source-type') AS must_be_null,
   element_at(summary, 'cdcID') AS must_be_null
-FROM iceberg.default."orders_cdc$snapshots"
+FROM iceberg.mysql_mydb."orders_current$snapshots"
 ORDER BY committed_at DESC;
 ```
 
-Repeat for `inventory_cdc`, `products_cdc`, and `transactions_cdc`.
+Repeat for `customers_current`, `inventory_current`, `products_current`, and `transactions_current`. Raw `*_cdc` snapshot operations are append-only.
 
 ## References
 

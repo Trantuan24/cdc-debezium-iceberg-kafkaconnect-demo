@@ -22,3 +22,19 @@ CREATE TABLE IF NOT EXISTS orders (
 -- matching the seeded PostgreSQL, MongoDB, and Oracle demo sources.
 INSERT INTO orders (id, customer_name, product, amount, status)
 VALUES (1, 'Snapshot Seed', 'Demo Product', 10.00, 'seeded');
+-- A second table captured by the same Debezium source connector. It proves the
+-- table-level fan-out rule:
+-- customers -> raw.mysql.mydb.customers -> its own sink -> customers_cdc.
+CREATE TABLE IF NOT EXISTS customers (
+    id            INT          NOT NULL AUTO_INCREMENT,
+    full_name     VARCHAR(100) NOT NULL,
+    email         VARCHAR(255) NOT NULL,
+    status        VARCHAR(20)  NOT NULL DEFAULT 'active',
+    created_at    TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at    TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_customers_email (email)
+);
+
+INSERT INTO customers (id, full_name, email, status)
+VALUES (1, 'Snapshot Customer', 'snapshot.customer@example.com', 'seeded');
