@@ -1,15 +1,87 @@
 # connector-cdc-service
 
-Thư mục độc lập dùng để build Kafka Connect image cho luồng:
+## Overview
+
+`connector-cdc-service` là Kafka Connect image độc lập cho pipeline CDC từ bốn
+loại cơ sở dữ liệu vào Iceberg:
 
 ```text
 MySQL / PostgreSQL / MongoDB / Oracle
   -> Debezium source
   -> Kafka raw topic
-  -> Iceberg sink
+  -> custom SMT
+  -> Iceberg sink (current-state hoặc append)
 ```
 
-Có thể copy riêng toàn bộ thư mục `connector-cdc-service` sang máy hoặc repository khác và build. Quá trình build không đọc file nào ở thư mục cha và không phụ thuộc phần demo local.
+Image đã đóng gói sẵn:
+
+- Kafka Connect `7.7.1`.
+- Debezium `2.5.4.Final` cho MySQL, PostgreSQL, MongoDB và Oracle.
+- Iceberg Sink Connector custom fork.
+- Ba SMT: `DebeziumOpMapper`, `IsoTimestampNormalizer` và `RawAppendEnvelope`.
+
+Đây là **một Docker image duy nhất**: `duytuan24/connector-cdc-service:1.1.0`.
+Các mục dưới đây là những loại connector/plugin được đóng gói bên trong image,
+không phải các image tách rời.
+
+### MySQL CDC
+
+- Connector: `io.debezium.connector.mysql.MySqlConnector`.
+- Đọc MySQL binlog và phát các sự kiện insert, update, delete vào Kafka.
+- Dùng cho các bảng nghiệp vụ đặt trong cấu hình MySQL source connector.
+
+### PostgreSQL CDC
+
+- Connector: `io.debezium.connector.postgresql.PostgresConnector`.
+- Đọc PostgreSQL WAL thông qua logical replication rồi phát sự kiện vào Kafka.
+- PostgreSQL phải được cấu hình replication slot và publication phù hợp.
+
+### MongoDB CDC
+
+- Connector: `io.debezium.connector.mongodb.MongoDbConnector`.
+- Đọc MongoDB change stream/oplog và phát thay đổi document vào Kafka.
+- Dữ liệu `before`/`after` có cấu trúc khác nhóm database quan hệ nhưng vẫn giữ
+  nguyên raw Debezium value ở luồng append.
+
+### Oracle CDC
+
+- Connector: `io.debezium.connector.oracle.OracleConnector`.
+- Đọc thay đổi Oracle bằng LogMiner và phát sự kiện vào Kafka.
+- Image đã kèm `ojdbc11.jar`; database vẫn cần bật supplemental logging và cấp
+  quyền CDC cho tài khoản connector.
+
+### Iceberg Sink
+
+- Connector: `io.tabular.iceberg.connect.IcebergSinkConnector`.
+- Đọc record từ Kafka và ghi vào bảng Iceberg.
+- Hỗ trợ hai cách sử dụng hiện tại: bảng current-state và bảng append lưu lịch sử
+  sự kiện.
+
+### Custom SMT
+
+- `DebeziumOpMapper`: ánh xạ operation của Debezium cho luồng current-state.
+- `IsoTimestampNormalizer`: chuẩn hóa timestamp trước khi ghi Iceberg.
+- `RawAppendEnvelope`: tạo record append 9 trường và giữ nguyên raw Kafka value
+  trong trường `data`.
+
+`RawAppendEnvelope` tạo bản ghi append với contract hiện tại:
+
+```text
+loainguon      = "cdc"
+manguondulieu  = topic-partition-offset
+sukien         = insert / update / delete
+phienban       = 1
+body           = Kafka key (chuỗi từ StringConverter; không có key thì "")
+header         = Kafka headers dạng JSON array; không có header thì ""
+data           = raw Kafka value
+ingest_date    = ngày ingest UTC
+ingest_time    = thời điểm ingest
+```
+
+Thư mục này là build context hoàn chỉnh. Có thể copy riêng sang máy hoặc
+repository khác để build; quá trình build không đọc file ở thư mục cha và không
+phụ thuộc phần demo local. Database, Kafka broker, Hive Metastore và S3/MinIO
+được cung cấp từ môi trường chạy, không nằm trong image.
 
 ## Cấu trúc
 
@@ -57,19 +129,26 @@ Nguồn tham khảo:
 | Không có Debezium source plugin | Bổ sung đủ bốn loại DB |
 | Credential cố định trong compose | Thay bằng `.env` hoặc secret runtime |
 
-## Build độc lập
+## Build và push image
 
-Chỉ cần đứng trong thư mục này:
+Ví dụ dưới đây dùng Git Bash và phát hành version `1.1.0`:
 
-```powershell
-cd connector-cdc-service
-docker build -t connector-cdc-service:1.0.0 .
+```bash
+cd /d/nifi-test/cdc-debezium-iceberg-kafkaconnect-demo/connector-cdc-service
 
-docker tag connector-cdc-service:1.0.0 \
-  duytuan24/connector-cdc-service:1.0.0
+IMAGE="duytuan24/connector-cdc-service"
+VERSION="1.1.0"
 
-docker push duytuan24/connector-cdc-service:1.0.0
+docker build \
+  --pull \
+  --no-cache \
+  -t "$IMAGE:$VERSION" \
+  -t "$IMAGE:latest" \
+  .
 
+docker login
+docker push "$IMAGE:$VERSION"
+docker push "$IMAGE:latest"
 ```
 
 Không dùng repository root làm build context.
